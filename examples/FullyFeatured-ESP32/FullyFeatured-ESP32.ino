@@ -1,32 +1,24 @@
+/*
+This example uses FreeRTOS softwaretimers as there is no built-in Ticker library
+*/
 
-// Example project which can be built with SSL enabled or disabled.
-// The espressif8266_stage platform must be installed.
-// Refer to platformio.ini for the build configuration and platform installation.
 
-#include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <Ticker.h>
+#include <WiFi.h>
+extern "C" {
+	#include "freertos/FreeRTOS.h"
+	#include "freertos/timers.h"
+}
 #include <AsyncMqttClient.h>
 
-#define WIFI_SSID "My_Wi-Fi"
-#define WIFI_PASSWORD "my-awesome-password"
+#define WIFI_SSID "yourSSID"
+#define WIFI_PASSWORD "yourpass"
 
 #define MQTT_HOST IPAddress(192, 168, 1, 10)
-
-#if ASYNC_TCP_SSL_ENABLED
-#define MQTT_SECURE true
-#define MQTT_SERVER_FINGERPRINT {0x7e, 0x36, 0x22, 0x01, 0xf9, 0x7e, 0x99, 0x2f, 0xc5, 0xdb, 0x3d, 0xbe, 0xac, 0x48, 0x67, 0x5b, 0x5d, 0x47, 0x94, 0xd2}
-#define MQTT_PORT 8883
-#else
 #define MQTT_PORT 1883
-#endif
 
 AsyncMqttClient mqttClient;
-Ticker mqttReconnectTimer;
-
-WiFiEventHandler wifiConnectHandler;
-WiFiEventHandler wifiDisconnectHandler;
-Ticker wifiReconnectTimer;
+TimerHandle_t mqttReconnectTimer;
+TimerHandle_t wifiReconnectTimer;
 
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
@@ -38,15 +30,21 @@ void connectToMqtt() {
   mqttClient.connect();
 }
 
-void onWifiConnect(const WiFiEventStationModeGotIP& event) {
-  Serial.println("Connected to Wi-Fi.");
-  connectToMqtt();
-}
-
-void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
-  Serial.println("Disconnected from Wi-Fi.");
-  mqttReconnectTimer.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  wifiReconnectTimer.once(2, connectToWifi);
+void WiFiEvent(WiFiEvent_t event) {
+    Serial.printf("[WiFi-event] event: %d\n", event);
+    switch(event) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+        Serial.println("WiFi connected");
+        Serial.println("IP address: ");
+        Serial.println(WiFi.localIP());
+        connectToMqtt();
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        Serial.println("WiFi lost connection");
+        xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+		xTimerStart(wifiReconnectTimer, 0);
+        break;
+    }
 }
 
 void onMqttConnect(bool sessionPresent) {
@@ -69,12 +67,8 @@ void onMqttConnect(bool sessionPresent) {
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   Serial.println("Disconnected from MQTT.");
 
-  if (reason == AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT) {
-    Serial.println("Bad server fingerprint.");
-  }
-
   if (WiFi.isConnected()) {
-    mqttReconnectTimer.once(2, connectToMqtt);
+    xTimerStart(mqttReconnectTimer, 0);
   }
 }
 
@@ -121,8 +115,10 @@ void setup() {
   Serial.println();
   Serial.println();
 
-  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+  wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+
+  WiFi.onEvent(WiFiEvent);
 
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
@@ -131,12 +127,6 @@ void setup() {
   mqttClient.onMessage(onMqttMessage);
   mqttClient.onPublish(onMqttPublish);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-#if ASYNC_TCP_SSL_ENABLED
-  mqttClient.setSecure(MQTT_SECURE);
-  if (MQTT_SECURE) {
-    mqttClient.addServerFingerprint((const uint8_t[])MQTT_SERVER_FINGERPRINT);
-  }
-#endif
 
   connectToWifi();
 }

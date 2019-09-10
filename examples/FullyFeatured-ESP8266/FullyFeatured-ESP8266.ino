@@ -1,9 +1,3 @@
-
-// Example project which can be built with SSL enabled or disabled.
-// The espressif8266_stage platform must be installed.
-// Refer to platformio.ini for the build configuration and platform installation.
-
-#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <AsyncMqttClient.h>
@@ -12,14 +6,7 @@
 #define WIFI_PASSWORD "my-awesome-password"
 
 #define MQTT_HOST IPAddress(192, 168, 1, 10)
-
-#if ASYNC_TCP_SSL_ENABLED
-#define MQTT_SECURE true
-#define MQTT_SERVER_FINGERPRINT {0x7e, 0x36, 0x22, 0x01, 0xf9, 0x7e, 0x99, 0x2f, 0xc5, 0xdb, 0x3d, 0xbe, 0xac, 0x48, 0x67, 0x5b, 0x5d, 0x47, 0x94, 0xd2}
-#define MQTT_PORT 8883
-#else
 #define MQTT_PORT 1883
-#endif
 
 AsyncMqttClient mqttClient;
 Ticker mqttReconnectTimer;
@@ -33,11 +20,6 @@ void connectToWifi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-void connectToMqtt() {
-  Serial.println("Connecting to MQTT...");
-  mqttClient.connect();
-}
-
 void onWifiConnect(const WiFiEventStationModeGotIP& event) {
   Serial.println("Connected to Wi-Fi.");
   connectToMqtt();
@@ -47,6 +29,11 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
   Serial.println("Disconnected from Wi-Fi.");
   mqttReconnectTimer.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
   wifiReconnectTimer.once(2, connectToWifi);
+}
+
+void connectToMqtt() {
+  Serial.println("Connecting to MQTT...");
+  mqttClient.connect();
 }
 
 void onMqttConnect(bool sessionPresent) {
@@ -68,10 +55,6 @@ void onMqttConnect(bool sessionPresent) {
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   Serial.println("Disconnected from MQTT.");
-
-  if (reason == AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT) {
-    Serial.println("Bad server fingerprint.");
-  }
 
   if (WiFi.isConnected()) {
     mqttReconnectTimer.once(2, connectToMqtt);
@@ -131,12 +114,6 @@ void setup() {
   mqttClient.onMessage(onMqttMessage);
   mqttClient.onPublish(onMqttPublish);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-#if ASYNC_TCP_SSL_ENABLED
-  mqttClient.setSecure(MQTT_SECURE);
-  if (MQTT_SECURE) {
-    mqttClient.addServerFingerprint((const uint8_t[])MQTT_SERVER_FINGERPRINT);
-  }
-#endif
 
   connectToWifi();
 }
