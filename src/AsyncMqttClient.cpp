@@ -702,23 +702,37 @@ uint16_t AsyncMqttClient::_getNextPacketId() {
 bool AsyncMqttClient::connected() const {
   return _connected;
 }
-
-void AsyncMqttClient::connect() {
-  if (_connected) return;
-
-#if ASYNC_TCP_SSL_ENABLED
+bool AsyncMqttClient::_connect(){
+  bool connect = false;
+  #if ASYNC_TCP_SSL_ENABLED
   if (_useIp) {
-    _client.connect(_ip, _port, _secure);
-  } else {
-    _client.connect(_host, _port, _secure);
+      connect = _client.connect(_ip, _port, _secure);
+    } else {
+      connect = _client.connect(_host, _port, _secure);
+    }
+  #else
+    if (_useIp) {
+      connect = _client.connect(_ip, _port);
+    } else {
+      connect = _client.connect(_host, _port);
+    }
+  #endif
+  return connect;
+}
+
+bool AsyncMqttClient::connect() {
+  if (_connected) return true;
+  bool connect = _connect();
+  if(!connect){
+    // If Could Not connect then there could be 2 reasons,
+    // 1. _pcb already Exists
+    // 2. could not allocate new pcb.  // Not sure, Why This could happen. 
+    // So we have to free _pcb. 
+    // And re try. 
+    _client.close(true); // Close Now. 
+    return _connect();
   }
-#else
-  if (_useIp) {
-    _client.connect(_ip, _port);
-  } else {
-    _client.connect(_host, _port);
-  }
-#endif
+  return connect;
 }
 
 void AsyncMqttClient::disconnect(bool force) {
