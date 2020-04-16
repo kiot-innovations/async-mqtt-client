@@ -14,12 +14,6 @@
   },
   "version": "0.8.1",
   "frameworks": "arduino",
-  "platforms": "espressif",
-  "dependencies": [
-    {
-      "name": "ESPAsyncTCP",
-      "version": "^1.0.1"
-    }
-  ]
+  "platforms": "espressif"
 }
 
